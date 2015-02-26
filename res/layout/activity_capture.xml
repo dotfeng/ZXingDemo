@@ -4,7 +4,7 @@
     android:layout_height="fill_parent" >
 
     <SurfaceView
-        android:id="@+id/preview_view"
+        android:id="@+id/capture_preview"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="center" />

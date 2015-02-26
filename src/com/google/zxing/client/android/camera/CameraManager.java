@@ -333,4 +333,8 @@ public final class CameraManager {
                                         rect.width(), rect.height(), false);
   }
   
+	public Point getCameraResolution() {
+		return configManager.getCameraResolution();
+	}
+  
 }

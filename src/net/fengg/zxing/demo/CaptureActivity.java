@@ -31,6 +31,7 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
 import android.graphics.Bitmap;
+import android.graphics.Rect;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
@@ -39,8 +40,14 @@ import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.Window;
 import android.view.WindowManager;
+import android.view.animation.Animation;
+import android.view.animation.TranslateAnimation;
+import android.widget.ImageView;
+import android.widget.RelativeLayout;
+
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.util.Collection;
 import java.util.Map;
 
@@ -56,6 +63,8 @@ import net.fengg.zxing.demo.R;
  */
 public class CaptureActivity extends Activity implements SurfaceHolder.Callback {
 
+	boolean custom = false;//可使用ViewfinderView，或使用自定义界面
+	
   private static final String TAG = CaptureActivity.class.getSimpleName();
 
   public static final int HISTORY_REQUEST_CODE = 0x0000bacc;
@@ -72,6 +81,13 @@ public class CaptureActivity extends Activity implements SurfaceHolder.Callback 
   private BeepManager beepManager;
   private AmbientLightManager ambientLightManager;
 
+  private SurfaceView scanPreview = null;
+	private RelativeLayout scanContainer;
+	private RelativeLayout scanCropView;
+	private ImageView scanLine;
+
+	private Rect mCropRect = null;
+  
   public ViewfinderView getViewfinderView() {
     return viewfinderView;
   }
@@ -90,13 +106,27 @@ public class CaptureActivity extends Activity implements SurfaceHolder.Callback 
 
     Window window = getWindow();
     window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-    setContentView(R.layout.activity_capture);
+    
+    if(custom) {
+    	setContentView(R.layout.activity_custom);   
+		scanContainer = (RelativeLayout) findViewById(R.id.capture_container);
+		scanCropView = (RelativeLayout) findViewById(R.id.capture_crop_view);
+		scanLine = (ImageView) findViewById(R.id.capture_scan_line);
+		
+		TranslateAnimation animation = new TranslateAnimation(Animation.RELATIVE_TO_PARENT, 0.0f, Animation.RELATIVE_TO_PARENT, 0.0f, Animation.RELATIVE_TO_PARENT, 0.0f, Animation.RELATIVE_TO_PARENT,
+				0.9f);
+		animation.setDuration(4500);
+		animation.setRepeatCount(-1);
+		animation.setRepeatMode(Animation.RESTART);
+		scanLine.startAnimation(animation);
+    }else {
+    	setContentView(R.layout.activity_capture);    	
+    }
 
     hasSurface = false;
     inactivityTimer = new InactivityTimer(this);
     beepManager = new BeepManager(this);
     ambientLightManager = new AmbientLightManager(this);
-
   }
 
   @Override
@@ -108,13 +138,13 @@ public class CaptureActivity extends Activity implements SurfaceHolder.Callback 
     // first launch. That led to bugs where the scanning rectangle was the wrong size and partially
     // off screen.
     cameraManager = new CameraManager(getApplication());
-
-    viewfinderView = (ViewfinderView) findViewById(R.id.viewfinder_view);
-    viewfinderView.setCameraManager(cameraManager);
-
+    if(!custom) {    	
+    	viewfinderView = (ViewfinderView) findViewById(R.id.viewfinder_view);
+    	viewfinderView.setCameraManager(cameraManager);
+    }
+    scanPreview = (SurfaceView) findViewById(R.id.capture_preview);
     handler = null;
-    SurfaceView surfaceView = (SurfaceView) findViewById(R.id.preview_view);
-    SurfaceHolder surfaceHolder = surfaceView.getHolder();
+    SurfaceHolder surfaceHolder = scanPreview.getHolder();
     if (hasSurface) {
       // The activity was paused but not stopped, so the surface still exists. Therefore
       // surfaceCreated() won't be called, so init the camera here.
@@ -145,8 +175,7 @@ public class CaptureActivity extends Activity implements SurfaceHolder.Callback 
     beepManager.close();
     cameraManager.closeDriver();
     if (!hasSurface) {
-      SurfaceView surfaceView = (SurfaceView) findViewById(R.id.preview_view);
-      SurfaceHolder surfaceHolder = surfaceView.getHolder();
+      SurfaceHolder surfaceHolder = scanPreview.getHolder();
       surfaceHolder.removeCallback(this);
     }
     super.onPause();
@@ -248,7 +277,11 @@ public class CaptureActivity extends Activity implements SurfaceHolder.Callback 
       if (handler == null) {
         handler = new CaptureActivityHandler(this, decodeFormats, decodeHints, characterSet, cameraManager);
       }
-      decodeOrStoreSavedBitmap(null, null);
+      if(custom) {
+    	  initCrop();
+      }else {    	  
+    	  decodeOrStoreSavedBitmap(null, null);
+      }
     } catch (IOException ioe) {
       Log.w(TAG, ioe);
       displayFrameworkBugMessageAndExit();
@@ -276,6 +309,50 @@ public class CaptureActivity extends Activity implements SurfaceHolder.Callback 
   }
 
   public void drawViewfinder() {
-    viewfinderView.drawViewfinder();
+	  if(!custom) {		  
+		  viewfinderView.drawViewfinder();
+	  }
   }
+  
+	public Rect getCropRect() {
+		return mCropRect;
+	}
+	
+  private void initCrop() {
+		int cameraWidth = cameraManager.getCameraResolution().y;
+		int cameraHeight = cameraManager.getCameraResolution().x;
+
+		int[] location = new int[2];
+		scanCropView.getLocationInWindow(location);
+
+		int cropLeft = location[0];
+		int cropTop = location[1] - getStatusBarHeight();
+
+		int cropWidth = scanCropView.getWidth();
+		int cropHeight = scanCropView.getHeight();
+
+		int containerWidth = scanContainer.getWidth();
+		int containerHeight = scanContainer.getHeight();
+
+		int x = cropLeft * cameraWidth / containerWidth;
+		int y = cropTop * cameraHeight / containerHeight;
+
+		int width = cropWidth * cameraWidth / containerWidth;
+		int height = cropHeight * cameraHeight / containerHeight;
+
+		mCropRect = new Rect(x, y, width + x, height + y);
+	}
+
+	private int getStatusBarHeight() {
+		try {
+			Class<?> c = Class.forName("com.android.internal.R$dimen");
+			Object obj = c.newInstance();
+			Field field = c.getField("status_bar_height");
+			int x = Integer.parseInt(field.get(obj).toString());
+			return getResources().getDimensionPixelSize(x);
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+		return 0;
+	}
 }

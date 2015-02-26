@@ -52,8 +52,7 @@ public final class DecodeThread extends Thread {
   public DecodeThread(CaptureActivity activity,
                Collection<BarcodeFormat> decodeFormats,
                Map<DecodeHintType,?> baseHints,
-               String characterSet,
-               ResultPointCallback resultPointCallback) {
+               String characterSet) {
 
     this.activity = activity;
     handlerInitLatch = new CountDownLatch(1);
@@ -79,7 +78,9 @@ public final class DecodeThread extends Thread {
     if (characterSet != null) {
       hints.put(DecodeHintType.CHARACTER_SET, characterSet);
     }
-    hints.put(DecodeHintType.NEED_RESULT_POINT_CALLBACK, resultPointCallback);
+    if(activity.getViewfinderView() != null) {    	
+    	hints.put(DecodeHintType.NEED_RESULT_POINT_CALLBACK, new ViewfinderResultPointCallback(activity.getViewfinderView()));
+    }
     Log.i("DecodeThread", "Hints: " + hints);
   }
 
